@@ -22,6 +22,9 @@ class ProductCreate(BaseModel):
     product_price : int
     product_quantity : int
 
+class ProductUpdate(ProductCreate):
+    pass
+
 class ProductResponse(ProductCreate):
     id : int
     product_id : str

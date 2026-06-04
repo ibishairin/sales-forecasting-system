@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Response, List
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from app.database import get_db
-from uuid import uuid4
 from app import schemas, models
 from typing import Annotated
 
@@ -11,48 +11,51 @@ router = APIRouter(
     tags=["Products"]
 )
 
-@router.post("/", status_code=status.HTTP_201_CREATED)
-def create_product(product: schemas.ProductCreate, db:Annotated[Session, Depends(get_db)]):
-    new_product = models.Product(
-        product_id = f"P-{uuid4().hex}", 
-        product_name = product.product_name,
-        product_price = product.product_price,
-        product_quantity = product.product_quantity
-    )
+
+@router.get("/", response_class=List[schemas.ProductResponse])
+
+@router.post("/", status_code=status.HTTP_201_CREATED, response_model=schemas.ProductResponse)
+
+def create_product(product:schemas.ProductCreate, db : Session = Depends(get_db)):
+    new_product = models.Product(**product.dict())
     db.add(new_product)
-    db.flush()
-    new_product.product_id=(f"P-{new_product.id:03d}")
     db.commit()
     db.refresh(new_product)
     return new_product
 
-@router.get("/api/products")
-def get_products(db:Annotated[Session,Depends(get_db)],
-                 status:schemas.Status| None = None,
-                 q: Annotated[str| None, Query(max_length=10)] = None):
-    query = db.query(models.Product)
-    if status:
-        query = query.filter(
-            models.Product.status == status.value.capitalize()
-        )
-    if q:
-        query = query.filter(
-            models.Product.product_name.contains(q),
-            models.Product.product_id.contains(q)
-        )
-    products = query.all()
+
+
+@router.get("/{id}", response_class=schemas.ProductResponse)
+def get_products(product:schemas.ProductResponse, db : Session = Depends(get_db)):
+    products = db.query(models.Product).first()
     return products
 
-@router.get("/{product_id}")
-def get_product(product_id:str , db :Annotated[Session, Depends(get_db)]) -> schemas.ProductResponse:
-    product = db.query(models.Product).filter(models.Product.product_id == product_id).first()
+
+
+def get_prodcut(id:int, db: Session = Depends(get_db)):
+    product = db.query(models.Product).filter(models.Product.id == id ).first()
     if not product:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
     return product
 
-@router.put("/{product_id}")
-def update_product(product_id:str, product_update:schemas.ProductUpdate, db:Annotated[Session, Depends(get_db)]):
-    product = db.query(models.Product).filter(models.Product.product_id == product_id).first()
-    if not product:
+    
+
+@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_product(id:int,db:Session= Depends(get_db)):
+    product = db.query(models.Product).filter(models.Product.id == id )
+    if product.first() == None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
-    product.status = product_update.status.value.capitalize()
+    product.delete(synchronize_session=False)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+@router.put("/{id}")
+def update_product(id:int, update_product: schemas.ProductResponse, db:Session= Depends(get_db)):
+    product_query = db.query(models.Product).filter(models.Product.id == id )
+    product= product_query.first()
+    if product == None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail= "Product not found")
+    product_query.update(update_product.dict(), synchronize_session=False)
+    db.commit()
+    return product_query.first()
+
